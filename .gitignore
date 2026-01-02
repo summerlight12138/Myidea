@@ -1,0 +1,35 @@
+# Data and Datasets
+dataset/
+data/
+
+# Experiment Runs and Results
+runs/
+all_result/
+evaluation/examples/Transformers/result/
+**/results/
+**/logs/
+*.json
+!mmad_subset.json
+!mmad.json
+# (Note: I am excluding all json files by default to avoid uploading large data files, 
+# but if there are config json files, they should be explicitly included. 
+# However, usually dataset labels are jsons. I'll stick to ignoring result folders first 
+# and maybe specific large json files if they are in root.)
+
+# System and Environment
+__pycache__/
+*.pyc
+.DS_Store
+.env
+env/
+venv/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Large files
+*.pt
+*.pth
+*.bin
