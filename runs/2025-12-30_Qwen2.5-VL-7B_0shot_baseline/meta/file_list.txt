@@ -1,0 +1,12 @@
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/outputs/answers_0_shot_Qwen2.5-VL-7B-Instruct.json
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/outputs/answers_0_shot_Qwen2.5-VL-7B-Instruct_accuracy.csv
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/env/requirements.txt
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/meta/python_path.txt
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/meta/python_version.txt
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/meta/nvidia_smi.txt
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/meta/file_list.txt
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/run_log.md
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/git/commit_id.txt
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/git/diff.patch
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/git/status_porcelain.txt
+runs/2025-12-30_Qwen2.5-VL-7B_0shot_baseline/git/status_full.txt

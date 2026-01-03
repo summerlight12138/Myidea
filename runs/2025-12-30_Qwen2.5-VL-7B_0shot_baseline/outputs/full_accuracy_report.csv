@@ -1,0 +1,10 @@
+question_type,accuracy,total
+Anomaly Detection,0.5069,8297
+Defect Localization,0.5574,4878
+Defect Analysis,0.7405,4782
+Defect Description,0.5958,4710
+Defect Classification,0.5075,4688
+Object Classification,0.9236,3154
+Object Analysis,0.8766,3087
+Object Structure,0.8142,3052
+Object Details,0.7900,3024
