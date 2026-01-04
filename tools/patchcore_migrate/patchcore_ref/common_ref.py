@@ -3,6 +3,7 @@ import os
 from typing import Dict, List, Tuple, Union
 
 import numpy as np
+from scipy import ndimage
 import torch
 import torch.nn.functional as F
 
@@ -101,15 +102,21 @@ class Aggregator(torch.nn.Module):
 
 
 class RescaleSegmentor:
-    def __init__(self, device: torch.device, target_size: Union[int, Tuple[int, int]]):
+    def __init__(
+        self,
+        device: torch.device,
+        target_size: Union[int, Tuple[int, int]],
+        smoothing: float = 4.0,
+    ):
         self.device = device
         if isinstance(target_size, int):
             self.target_size = (target_size, target_size)
         else:
             self.target_size = target_size
-        self.smoothing = 4
+        self.smoothing = float(smoothing)
 
     def convert_to_segmentation(self, patch_scores: Union[np.ndarray, torch.Tensor]) -> List[np.ndarray]:
+        """小白版说明：把粗糙的小格子分数图，插值放大后再做高斯平滑，用于可视化。"""
         with torch.no_grad():
             if isinstance(patch_scores, np.ndarray):
                 patch_scores = torch.from_numpy(patch_scores)
@@ -117,8 +124,11 @@ class RescaleSegmentor:
             scores = scores.unsqueeze(1)
             scores = F.interpolate(scores, size=self.target_size, mode="bilinear", align_corners=False)
             scores = scores.squeeze(1)
-            patch_scores = scores.cpu().numpy()
-        return [patch_score for patch_score in patch_scores]
+            patch_scores_np = scores.cpu().numpy()
+        smoothed: List[np.ndarray] = []
+        for patch_score in patch_scores_np:
+            smoothed.append(ndimage.gaussian_filter(patch_score, sigma=self.smoothing))
+        return smoothed
 
 
 class FaissNN:

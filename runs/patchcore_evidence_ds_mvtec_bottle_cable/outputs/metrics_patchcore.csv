@@ -1,2 +1,4 @@
-AUROC_image,AUPR_image,AUROC_pixel,AUPR_pixel,overkill_rate_score,overkill_rate_area
-0.44185277088502894,0.6454434877779109,nan,0.5,1.0,1.0
+class_name,num_eval_total,num_good,num_anom,AUROC_image,AUPR_image,AUROC_pixel,AUPR_pixel,overkill_rate_score,overkill_rate_area,image_reason,pixel_reason
+bottle,69,6,63,1.0,0.9999999999999998,NA,NA,0.0,0.0,,only_one_class
+cable,111,19,92,0.948512585812357,0.9883571551162023,NA,NA,0.05263157894736842,0.05263157894736842,,only_one_class
+macro_avg,,,,0.9742562929061784,0.994178577558101,NA,NA,0.02631578947368421,0.02631578947368421,,

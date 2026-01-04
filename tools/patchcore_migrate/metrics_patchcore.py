@@ -5,37 +5,107 @@ from sklearn import metrics
 
 
 def compute_image_metrics(scores: List[float], labels: List[int]) -> Dict:
+    """小白版说明：根据整张图的分数和好/坏标签，算出 AUROC 和 AUPR 等整体指标。"""
     scores_arr = np.asarray(scores, dtype=np.float32)
     labels_arr = np.asarray(labels, dtype=np.int32)
-    fpr, tpr, _ = metrics.roc_curve(labels_arr, scores_arr)
-    auroc = metrics.roc_auc_score(labels_arr, scores_arr)
-    precision, recall, _ = metrics.precision_recall_curve(labels_arr, scores_arr)
-    aupr = metrics.auc(recall, precision)
-    return {
-        "auroc_image": float(auroc),
-        "aupr_image": float(aupr),
-        "fpr_image": fpr,
-        "tpr_image": tpr,
-    }
+    if scores_arr.size == 0 or labels_arr.size == 0:
+        return {
+            "auroc_image": None,
+            "aupr_image": None,
+            "fpr_image": None,
+            "tpr_image": None,
+            "reason_image": "no_samples",
+        }
+    if np.unique(labels_arr).size < 2:
+        return {
+            "auroc_image": None,
+            "aupr_image": None,
+            "fpr_image": None,
+            "tpr_image": None,
+            "reason_image": "only_one_class",
+        }
+    try:
+        fpr, tpr, _ = metrics.roc_curve(labels_arr, scores_arr)
+        auroc = metrics.roc_auc_score(labels_arr, scores_arr)
+        precision, recall, _ = metrics.precision_recall_curve(labels_arr, scores_arr)
+        aupr = metrics.auc(recall, precision)
+        return {
+            "auroc_image": float(auroc),
+            "aupr_image": float(aupr),
+            "fpr_image": fpr,
+            "tpr_image": tpr,
+            "reason_image": "",
+        }
+    except Exception:
+        return {
+            "auroc_image": None,
+            "aupr_image": None,
+            "fpr_image": None,
+            "tpr_image": None,
+            "reason_image": "metric_exception",
+        }
 
 
 def compute_pixel_metrics(anomaly_maps: List[np.ndarray], masks: List[np.ndarray]) -> Dict:
+    """小白版说明：把所有像素的分数和像素标签拉平成一长串，算像素级 AUROC/AUPR。"""
     if isinstance(anomaly_maps, list):
+        if len(anomaly_maps) == 0:
+            return {
+                "auroc_pixel": None,
+                "aupr_pixel": None,
+                "fpr_pixel": None,
+                "tpr_pixel": None,
+                "reason_pixel": "no_samples",
+            }
         anomaly_maps = np.stack(anomaly_maps)
     if isinstance(masks, list):
+        if len(masks) == 0:
+            return {
+                "auroc_pixel": None,
+                "aupr_pixel": None,
+                "fpr_pixel": None,
+                "tpr_pixel": None,
+                "reason_pixel": "no_samples",
+            }
         masks = np.stack(masks)
     flat_scores = anomaly_maps.reshape(-1).astype(np.float32)
     flat_labels = masks.reshape(-1).astype(np.int32)
-    fpr, tpr, _ = metrics.roc_curve(flat_labels, flat_scores)
-    auroc = metrics.roc_auc_score(flat_labels, flat_scores)
-    precision, recall, _ = metrics.precision_recall_curve(flat_labels, flat_scores)
-    aupr = metrics.auc(recall, precision)
-    return {
-        "auroc_pixel": float(auroc),
-        "aupr_pixel": float(aupr),
-        "fpr_pixel": fpr,
-        "tpr_pixel": tpr,
-    }
+    if flat_scores.size == 0 or flat_labels.size == 0:
+        return {
+            "auroc_pixel": None,
+            "aupr_pixel": None,
+            "fpr_pixel": None,
+            "tpr_pixel": None,
+            "reason_pixel": "no_samples",
+        }
+    if np.unique(flat_labels).size < 2:
+        return {
+            "auroc_pixel": None,
+            "aupr_pixel": None,
+            "fpr_pixel": None,
+            "tpr_pixel": None,
+            "reason_pixel": "only_one_class",
+        }
+    try:
+        fpr, tpr, _ = metrics.roc_curve(flat_labels, flat_scores)
+        auroc = metrics.roc_auc_score(flat_labels, flat_scores)
+        precision, recall, _ = metrics.precision_recall_curve(flat_labels, flat_scores)
+        aupr = metrics.auc(recall, precision)
+        return {
+            "auroc_pixel": float(auroc),
+            "aupr_pixel": float(aupr),
+            "fpr_pixel": fpr,
+            "tpr_pixel": tpr,
+            "reason_pixel": "",
+        }
+    except Exception:
+        return {
+            "auroc_pixel": None,
+            "aupr_pixel": None,
+            "fpr_pixel": None,
+            "tpr_pixel": None,
+            "reason_pixel": "metric_exception",
+        }
 
 
 def compute_overkill_from_evidence(
@@ -68,4 +138,3 @@ def compute_overkill_from_evidence(
         "overkill_rate_score": float(np.mean(score_flags)),
         "overkill_rate_area": float(np.mean(area_flags)),
     }
-

@@ -15,7 +15,7 @@ from tools.patchcore_migrate.evidence_postprocess import build_evidence
 def main():
     dataset_dir = os.path.join(root_dir, "dataset", "MMAD")
     runs_dir = os.path.join(root_dir, "runs")
-    subset_json = os.path.join(dataset_dir, "mmad_ds_mvtec_bottle_cable.json")
+    subset_json = os.path.join(dataset_dir, "mmad_ds_mvtec_bottle_cable_eval.json")
     evidence_run = "patchcore_evidence_ds_mvtec_bottle_cable"
     bank_run = "patchcore_bank_ds_mvtec_bottle_cable"
     output_root = os.path.join(runs_dir, evidence_run)
@@ -65,6 +65,7 @@ def main():
                 map_path_raw=raw_path,
                 map_path_vis=vis_path,
             )
+            evidence["split"] = "eval"
             fout.write(json.dumps(evidence, ensure_ascii=False) + "\n")
             map_stats_rows.append(
                 {

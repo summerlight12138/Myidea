@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sys
 from typing import Dict, List
 
@@ -8,31 +9,21 @@ if root_dir not in sys.path:
     sys.path.append(root_dir)
 
 from tools.patchcore_migrate import PatchCoreExpert
-
-
-def collect_mvtec_ad_train_good(mmad_root: str, classes: List[str]) -> Dict[str, List[str]]:
-    base = os.path.join(mmad_root, "MVTec-AD")
-    result: Dict[str, List[str]] = {}
-    for cls in classes:
-        train_good_dir = os.path.join(base, cls, "train", "good")
-        if not os.path.isdir(train_good_dir):
-            continue
-        paths = []
-        for fname in sorted(os.listdir(train_good_dir)):
-            if fname.lower().endswith((".png", ".jpg", ".jpeg")):
-                paths.append(os.path.join(train_good_dir, fname))
-        result[cls] = paths
-    return result
+from tools.patchcore_migrate.patchcore_expert import pickle
 
 
 def main():
+    """小白版说明：用 DS-MVTec 的 good 划分结果，在同一域内为每一类建立 PatchCore 记忆库并记录阈值信息。"""
     dataset_dir = os.path.join(root_dir, "dataset", "MMAD")
     runs_dir = os.path.join(root_dir, "runs")
     run_name = "patchcore_bank_ds_mvtec_bottle_cable"
-    save_dir = os.path.join(runs_dir, run_name, "outputs")
+    run_dir = os.path.join(runs_dir, run_name)
+    save_dir = os.path.join(run_dir, "outputs")
     os.makedirs(save_dir, exist_ok=True)
     classes = ["bottle", "cable"]
-    train_paths = collect_mvtec_ad_train_good(dataset_dir, classes)
+    split_json = os.path.join(dataset_dir, "stage3_good_split_bottle_cable.json")
+    with open(split_json, "r") as f:
+        split = json.load(f)
     config = {
         "backbone_name": "wideresnet50",
         "layers_to_extract_from": ["layer2", "layer3"],
@@ -52,18 +43,43 @@ def main():
             "dimension_to_project_features_to": 128,
         },
         "batch_size": 16,
+        "vis_smoothing_sigma": 4.0,
     }
     expert = PatchCoreExpert(config)
-    log = {}
-    for cls, paths in train_paths.items():
-        if not paths:
+    log: Dict[str, Dict] = {}
+    log["config"] = config
+    log["split_source"] = os.path.relpath(split_json, start=run_dir)
+    for cls in classes:
+        cls_split = split.get(cls)
+        if not cls_split:
             continue
-        bank_path = expert.build_bank(paths, cls, save_dir)
+        bank_keys: List[str] = cls_split.get("bank_good", [])
+        thr_keys: List[str] = cls_split.get("thr_good", [])
+        eval_keys: List[str] = cls_split.get("eval_good", [])
+        bank_paths: List[str] = [os.path.join(dataset_dir, key) for key in bank_keys]
+        thr_paths: List[str] = [os.path.join(dataset_dir, key) for key in thr_keys]
+        if not bank_paths or not thr_paths:
+            continue
+        bank_path = expert.build_bank(bank_paths, cls, save_dir, thr_image_paths=thr_paths)
+        with open(bank_path, "rb") as f:
+            bank_obj = pickle.load(f)
+        thresholds = bank_obj.get("thresholds", {})
+        train_stats = bank_obj.get("train_stats", {})
         log[cls] = {
-            "num_train_good": len(paths),
-            "bank_path": os.path.relpath(bank_path, start=os.path.join(runs_dir, run_name)),
+            "num_bank_good": len(bank_paths),
+            "num_thr_good": len(thr_paths),
+            "num_eval_good": len(eval_keys),
+            "bank_path": os.path.relpath(bank_path, start=run_dir),
+            "thresholds": thresholds,
+            "train_stats": train_stats,
         }
-    log_path = os.path.join(runs_dir, run_name, "run_log.json")
+    os.makedirs(run_dir, exist_ok=True)
+    split_copy_dst = os.path.join(run_dir, "stage3_good_split_bottle_cable.json")
+    try:
+        shutil.copy(split_json, split_copy_dst)
+    except OSError:
+        pass
+    log_path = os.path.join(run_dir, "run_log.json")
     with open(log_path, "w") as f:
         json.dump(log, f, indent=2, ensure_ascii=False)
 

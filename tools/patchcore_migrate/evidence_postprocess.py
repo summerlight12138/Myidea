@@ -2,6 +2,7 @@ import math
 from typing import Dict, List, Tuple
 
 import numpy as np
+from scipy import ndimage
 
 from .patchcore_expert import PatchCoreExpert
 
@@ -43,27 +44,24 @@ def extract_bboxes_and_grid(
     topk: int = 3,
     min_area_ratio: float = 0.001,
 ) -> Tuple[List[Dict], List[Dict]]:
-    labeled = bin_map
-    num = 1 if bin_map.sum() > 0 else 0
-    if num == 0:
-        grid_cells = []
-        return [], grid_cells
-    ys, xs = np.where(bin_map > 0)
-    if ys.size == 0:
-        grid_cells = []
-        return [], grid_cells
-    y_min = int(ys.min())
-    y_max = int(ys.max())
-    x_min = int(xs.min())
-    x_max = int(xs.max())
-    objects = [(slice(y_min, y_max + 1), slice(x_min, x_max + 1))]
+    """小白版说明：在二值图里找出多个连通的小块，为每个小块算一个框和分数，再挑出分数最高的前几块。"""
     H, W = raw_map.shape
+    if bin_map.sum() <= 0:
+        return [], []
+    labeled, num = ndimage.label(bin_map)
+    if num == 0:
+        return [], []
+    objects = ndimage.find_objects(labeled)
     orig_h, orig_w = transform_meta["orig_size"]
     regions: List[Dict] = []
     for idx, slc in enumerate(objects, start=1):
+        if slc is None:
+            continue
         x_min_224, y_min_224, x_max_224, y_max_224 = _bbox_from_slice(slc)
         mask_region = labeled[slc] == idx
         area = int(mask_region.sum())
+        if area <= 0:
+            continue
         area_ratio = float(area / float(H * W))
         if area_ratio < min_area_ratio:
             continue
@@ -118,14 +116,23 @@ def build_evidence(
     raw_map = patchcore_output["raw_map"]
     thresholds = patchcore_output["thresholds"]
     transform_meta = patchcore_output["transform_meta"]
-    area_ratio, bin_map = compute_area_ratio(raw_map, thresholds["map_bin_thr_p99_train_good"])
-    bboxes, grid_cells = extract_bboxes_and_grid(
-        raw_map,
-        bin_map,
-        transform_meta,
-        topk=3,
-        min_area_ratio=0.001,
-    )
+    score = float(patchcore_output["anomaly_score"])
+    map_bin_thr = float(thresholds["map_bin_thr_p99_train_good"])
+    score_thr = float(thresholds["score_thr_p95_train_good"])
+    area_thr = float(thresholds["area_thr_p95_train_good"])
+    area_ratio, bin_map = compute_area_ratio(raw_map, map_bin_thr)
+    suspect = (score > score_thr) or (area_ratio > area_thr)
+    if suspect:
+        bboxes, grid_cells = extract_bboxes_and_grid(
+            raw_map,
+            bin_map,
+            transform_meta,
+            topk=3,
+            min_area_ratio=0.001,
+        )
+    else:
+        bboxes = []
+        grid_cells = []
     evidence = {
         "image_key": image_key,
         "key_id": key_id,
@@ -136,11 +143,11 @@ def build_evidence(
         "resize": transform_meta["resize_shorter"],
         "crop": transform_meta["crop_size"],
         "resize_mode": "resize_shorter_then_centercrop",
-        "anomaly_score": patchcore_output["anomaly_score"],
-        "score_thr": thresholds["score_thr_p95_train_good"],
+        "anomaly_score": score,
+        "score_thr": score_thr,
         "area_ratio": area_ratio,
-        "area_thr": thresholds["area_thr_p95_train_good"],
-        "map_bin_thr": thresholds["map_bin_thr_p99_train_good"],
+        "area_thr": area_thr,
+        "map_bin_thr": map_bin_thr,
         "map_path_raw": map_path_raw,
         "map_path_vis": map_path_vis,
         "map_stats": {
@@ -150,6 +157,7 @@ def build_evidence(
             "entropy": patchcore_output["map_stats"]["entropy"],
             "area_ratio": area_ratio,
         },
+        "suspect": suspect,
         "bboxes": bboxes,
         "grid_3x3": grid_cells,
     }

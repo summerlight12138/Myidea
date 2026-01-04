@@ -1,7 +1,7 @@
 import hashlib
 import os
 import pickle
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -29,6 +29,7 @@ class ImageDataset(Dataset):
 
 class PatchCoreExpert:
     def __init__(self, config: Dict):
+        """小白版说明：把 PatchCore 这一整套“看图找异常”的配置和预处理方法封装起来。"""
         self.config = config
         self.device = torch.device(config.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
         resize = config.get("resize", 256)
@@ -66,6 +67,7 @@ class PatchCoreExpert:
         return meta
 
     def forward_transform(self, image_path: str) -> Tuple[torch.Tensor, Dict]:
+        """小白版说明：把一张原始图片变成模型输入用的张量，并记录缩放裁剪信息。"""
         pil_image = Image.open(image_path).convert("RGB")
         meta = self._compute_transform_meta(pil_image)
         tensor = self.transform(pil_image)
@@ -105,6 +107,7 @@ class PatchCoreExpert:
         return path
 
     def _init_model(self) -> PatchCore:
+        """小白版说明：根据配置真正把 PatchCore 模型和特征提取骨干网络搭起来。"""
         backbone_name = self.config.get("backbone_name", "wideresnet50")
         layers = self.config.get("layers_to_extract_from", ["layer2", "layer3"])
         pretrain_dim = self.config.get("pretrain_embed_dim", 1024)
@@ -113,6 +116,7 @@ class PatchCoreExpert:
         patchstride = self.config.get("patchstride", 1)
         nn_k = self.config.get("nn_k", 1)
         coreset_conf = self.config.get("coreset", {"type": "approx_greedy", "percentage": 0.1})
+        vis_smoothing_sigma = float(self.config.get("vis_smoothing_sigma", 4.0))
         backbone = load_backbone(backbone_name)
         backbone.name = backbone_name
         input_shape = (3, self.imagesize, self.imagesize)
@@ -139,21 +143,35 @@ class PatchCoreExpert:
             anomaly_score_num_nn=nn_k,
             featuresampler=sampler,
             nn_method=nn_method,
+            smoothing_sigma=vis_smoothing_sigma,
         )
         return model
 
-    def build_bank(self, train_image_paths: List[str], class_name: str, save_dir: str) -> str:
+    def build_bank(
+        self,
+        bank_image_paths: List[str],
+        class_name: str,
+        save_dir: str,
+        thr_image_paths: Optional[List[str]] = None,
+    ) -> str:
+        """小白版说明：用正常图建一个“记忆库”，并在单独的阈值集上算好阈值。"""
         os.makedirs(save_dir, exist_ok=True)
-        if len(train_image_paths) == 0:
+        if len(bank_image_paths) == 0:
             raise ValueError("No training images provided for bank construction.")
-        split_idx = int(len(train_image_paths) * 0.8)
-        train_paths_bank = train_image_paths[:split_idx]
-        train_paths_thr = train_image_paths[split_idx:]
-        dataset_bank = ImageDataset(train_paths_bank, self.transform)
+        bank_image_paths_sorted = sorted(bank_image_paths)
+        if thr_image_paths is not None:
+            thr_image_paths_sorted = sorted(thr_image_paths)
+        else:
+            split_idx = int(len(bank_image_paths_sorted) * 0.8)
+            thr_image_paths_sorted = bank_image_paths_sorted[split_idx:]
+            bank_image_paths_sorted = bank_image_paths_sorted[:split_idx]
+        if len(thr_image_paths_sorted) == 0:
+            raise ValueError("Threshold split is empty; cannot compute thresholds.")
+        dataset_bank = ImageDataset(bank_image_paths_sorted, self.transform)
         loader_bank = DataLoader(dataset_bank, batch_size=self.config.get("batch_size", 16), shuffle=False)
         model = self._init_model()
         model.fit(loader_bank)
-        dataset_thr = ImageDataset(train_paths_thr, self.transform)
+        dataset_thr = ImageDataset(thr_image_paths_sorted, self.transform)
         loader_thr = DataLoader(dataset_thr, batch_size=self.config.get("batch_size", 16), shuffle=False)
         thr_scores: List[float] = []
         thr_raw_maps: List[np.ndarray] = []
@@ -163,24 +181,31 @@ class PatchCoreExpert:
             thr_raw_maps.append(np.asarray(r, dtype=np.float32))
         if len(thr_raw_maps) == 0:
             raise ValueError("Threshold split is empty; cannot compute thresholds.")
-        all_values = np.concatenate([m.reshape(-1) for m in thr_raw_maps], axis=0)
-        map_bin_thr = float(np.percentile(all_values, 99.0))
+        per_image_p99 = []
+        for m in thr_raw_maps:
+            flat = m.reshape(-1)
+            per_image_p99.append(float(np.percentile(flat, 99.0)))
+        if len(per_image_p99) == 0:
+            raise ValueError("No values for map threshold computation.")
+        map_bin_thr = float(np.percentile(np.asarray(per_image_p99, dtype=np.float32), 50.0))
         area_ratios = []
         for m in thr_raw_maps:
             bin_map = (m >= map_bin_thr).astype(np.float32)
             area_ratios.append(float(bin_map.mean()))
-        score_thr = float(np.percentile(np.array(thr_scores), 95.0))
-        area_thr = float(np.percentile(np.array(area_ratios), 95.0))
+        score_thr = float(np.percentile(np.asarray(thr_scores, dtype=np.float32), 95.0))
+        area_thr = float(np.percentile(np.asarray(area_ratios, dtype=np.float32), 95.0))
         thresholds = {
             "score_thr_p95_train_good": score_thr,
             "area_thr_p95_train_good": area_thr,
             "map_bin_thr_p99_train_good": map_bin_thr,
         }
         train_stats = {
-            "num_train_good_total": len(train_image_paths),
-            "num_train_for_bank": len(train_paths_bank),
-            "num_train_for_thr": len(train_paths_thr),
+            "num_train_good_total": len(bank_image_paths_sorted) + len(thr_image_paths_sorted),
+            "num_train_for_bank": len(bank_image_paths_sorted),
+            "num_train_for_thr": len(thr_image_paths_sorted),
         }
+        preprocessing_state = model.forward_modules["preprocessing"].state_dict()
+        preadapt_state = model.forward_modules["preadapt_aggregator"].state_dict()
         index_filename = f"nn_index_{class_name}.faiss"
         index_path = os.path.join(save_dir, index_filename)
         model.anomaly_scorer.nn_method.save(index_path)
@@ -191,6 +216,8 @@ class PatchCoreExpert:
             "thresholds": thresholds,
             "train_stats": train_stats,
             "index_path": index_filename,
+            "preprocessing_state_dict": preprocessing_state,
+            "preadapt_aggregator_state_dict": preadapt_state,
         }
         bank_path = os.path.join(save_dir, f"bank_{class_name}.pkl")
         with open(bank_path, "wb") as f:
@@ -198,6 +225,7 @@ class PatchCoreExpert:
         return bank_path
 
     def infer(self, image_path: str, bank_path: str) -> Dict:
+        """小白版说明：给定一张图和已经训练好的 bank，算出分数、热力图和统计信息。"""
         with open(bank_path, "rb") as f:
             bank = pickle.load(f)
         config = bank["config"]
@@ -205,6 +233,12 @@ class PatchCoreExpert:
         index_path = os.path.join(os.path.dirname(bank_path), bank["index_path"])
         expert = PatchCoreExpert(config)
         model = expert._init_model()
+        preproc_state = bank.get("preprocessing_state_dict")
+        preadapt_state = bank.get("preadapt_aggregator_state_dict")
+        if preproc_state is not None:
+            model.forward_modules["preprocessing"].load_state_dict(preproc_state)
+        if preadapt_state is not None:
+            model.forward_modules["preadapt_aggregator"].load_state_dict(preadapt_state)
         model.anomaly_scorer.nn_method.load(index_path)
         tensor, meta = expert.forward_transform(image_path)
         dataset = [{"image": tensor[0]}]
@@ -217,9 +251,10 @@ class PatchCoreExpert:
         mean_val = float(raw_map.mean())
         std_val = float(raw_map.std())
         flat = raw_map.reshape(-1)
-        hist, bin_edges = np.histogram(flat, bins=64, range=(float(flat.min()), float(flat.max()) + 1e-8), density=True)
-        hist = hist + 1e-12
-        entropy = float(-(hist * np.log(hist)).sum())
+        counts, _ = np.histogram(flat, bins=64)
+        probs = counts.astype(np.float64)
+        probs = probs / (probs.sum() + 1e-12)
+        entropy = float(-(probs * np.log(probs + 1e-12)).sum())
         result = {
             "image_path": image_path,
             "anomaly_score": score,

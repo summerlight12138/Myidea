@@ -77,6 +77,7 @@ class PatchCore(torch.nn.Module):
         anomaly_score_num_nn: int = 1,
         featuresampler: torch.nn.Module = IdentitySampler(),
         nn_method: FaissNN = FaissNN(False, 4),
+        smoothing_sigma: float = 4.0,
     ):
         self.backbone = backbone.to(device)
         self.layers_to_extract_from = layers_to_extract_from
@@ -99,7 +100,11 @@ class PatchCore(torch.nn.Module):
         self.anomaly_scorer = NearestNeighbourScorer(
             n_nearest_neighbours=anomaly_score_num_nn, nn_method=nn_method
         )
-        self.anomaly_segmentor = RescaleSegmentor(device=self.device, target_size=input_shape[-2:])
+        self.anomaly_segmentor = RescaleSegmentor(
+            device=self.device,
+            target_size=input_shape[-2:],
+            smoothing=smoothing_sigma,
+        )
         self.featuresampler = featuresampler
 
     def _embed(self, images: torch.Tensor, detach: bool = True, provide_patch_shapes: bool = False):
